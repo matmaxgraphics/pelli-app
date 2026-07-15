@@ -19,7 +19,7 @@ export function PresenceSync() {
 
       {/* Two people, one line between them */}
       <div className="mb-5 flex items-center gap-3">
-        <Person name="Ada" color="hsl(var(--primary))" />
+        <Person name="Ada" color="var(--color-primary)" />
         <div className="relative h-px flex-1 bg-border">
           <motion.span
             aria-hidden

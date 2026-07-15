@@ -1,26 +1,90 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/**
+ * Pelli design tokens — warm stone + soft coral. Single source of truth (rules.md §3).
+ *
+ * Tailwind v4 reads its theme from this file, not from a JS config. Every token
+ * here becomes a utility automatically: `--color-primary` -> `bg-primary`,
+ * `--shadow-lift` -> `shadow-lift`.
+ *
+ * Light mode only, deliberately. Pelli is a warm living room, not a console.
+ */
+@theme {
+  /* Surfaces — warm paper and stone, never pure gray */
+  --color-background: #fbfaf9;
+  --color-foreground: #1c1917;
+  --color-card: #ffffff;
+  --color-card-foreground: #1c1917;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #1c1917;
+  --color-muted: #f5f4f2;
+  --color-muted-foreground: #78716c;
+  --color-border: #e7e5e4;
+  --color-input: #e7e5e4;
+
+  /* The one accent. Used sparingly — CTAs, presence, focus. */
+  --color-primary: #ec6a5e;
+  --color-primary-hover: #d9584d;
+  --color-primary-foreground: #ffffff;
+  --color-ring: #ec6a5e;
+
+  /* Coral wash — the only tinted surface. `accent-foreground` is a darkened
+     coral so icons on the wash clear AA contrast (~6.5:1). Same hue, not a
+     second accent. */
+  --color-accent: #fbeae6;
+  --color-accent-foreground: #9f3e34;
+
+  --color-destructive: #b91c1c;
+  --color-destructive-foreground: #ffffff;
+
+  /* Geist, self-hosted via the `geist` package (see app/layout.tsx) */
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  /* Soft, never glowing */
+  --shadow-subtle: 0 1px 2px rgba(28, 25, 23, 0.04), 0 6px 20px rgba(28, 25, 23, 0.06);
+  --shadow-lift: 0 2px 4px rgba(28, 25, 23, 0.05), 0 14px 40px rgba(28, 25, 23, 0.09);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/**
+ * v4 has no `theme.container` config. This restates the v3 behaviour we had:
+ * centered, 1.5rem gutter, capped at 1120px.
+ */
+@utility container {
+  margin-inline: auto;
+  width: 100%;
+  max-width: 1120px;
+  padding-inline: 1.5rem;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  html {
+    color-scheme: light;
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Coral focus ring, consistently, for keyboard users. */
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* rules.md §3 Motion: always respect prefers-reduced-motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
