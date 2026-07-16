@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { RoomView } from "@/components/room/room-view";
 import { getRoom } from "@/services/rooms";
+import { getMessages } from "@/services/messages";
 import { recallSeat } from "@/lib/session";
 import { getRequestOrigin } from "@/lib/origin";
 import { isValidRoomCode, normalizeRoomCode } from "@/utils/room-code";
@@ -27,7 +28,10 @@ export default async function RoomPage(props: PageProps<"/room/[code]">) {
   const you = room.participants.find((p) => p.id === seat);
   if (!you) redirect(`/join/${code}`);
 
-  const inviteUrl = `${await getRequestOrigin()}/join/${code}`;
+  const [inviteUrl, initialMessages] = await Promise.all([
+    getRequestOrigin().then((origin) => `${origin}/join/${code}`),
+    getMessages(code),
+  ]);
 
   return (
     <main className="flex-1">
@@ -35,8 +39,9 @@ export default async function RoomPage(props: PageProps<"/room/[code]">) {
         code={code}
         inviteUrl={inviteUrl}
         initialRoom={room}
-        youId={you.id}
+        me={{ id: you.id, name: you.name, color: you.color }}
         isHost={you.role === "host"}
+        initialMessages={initialMessages}
       />
     </main>
   );

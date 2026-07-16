@@ -17,9 +17,9 @@ the onchain plan.
 | 1 | Landing page                                   | Done        |
 | 2 | Room creation + guest identity (code, link, QR) | Done        |
 | 3 | Video upload/link + synchronized playback      | Done        |
-| 4 | Chat, typing indicator, reactions              | Next        |
-| 5 | AI companion (contextual, spoiler-safe)        | Planned     |
-| 6 | Movie Night Summary + onchain keepsake mint    | Planned     |
+| 4 | Chat, typing indicator, floating reactions     | Done        |
+| 5 | AI companion (contextual, spoiler-safe)        | Skipped     |
+| 6 | Movie Night Summary + onchain keepsake mint    | Next        |
 
 ## Setup
 
@@ -109,6 +109,11 @@ types/  utils/  constants/
 - **Films come from upload or link.** Uploads go straight from the browser to a
   public `movies` Storage bucket (capped ~50MB for the free tier); a pasted MP4
   link is the fast path. Both resolve to a URL the room records.
+- **Chat persists; typing and reactions are ephemeral.** Messages are stored and
+  delivered over postgres_changes (history survives a refresh); typing pings and
+  floating reactions ride broadcast for a snappy feel. Reactions are *also*
+  written to a `reactions` table — that tally is what the Movie Night Summary's
+  "top reactions" will draw on (Feature 6).
 
 ## Onchain
 

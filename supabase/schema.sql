@@ -67,6 +67,49 @@ create policy "participants readable"   on public.participants for select using 
 create policy "participants insertable" on public.participants for insert with check (true);
 create policy "participants deletable"  on public.participants for delete using (true);
 
+-- Chat ---------------------------------------------------------------------
+-- Messages persist so history survives a refresh or a late join. Author name
+-- and color are denormalized onto the row so a message still renders correctly
+-- even if the participant row is later removed.
+create table if not exists public.messages (
+  id             uuid primary key default gen_random_uuid(),
+  room_code      text not null references public.rooms(code) on delete cascade,
+  participant_id uuid references public.participants(id) on delete set null,
+  author_name    text not null check (char_length(trim(author_name)) between 1 and 24),
+  author_color   text not null,
+  body           text not null check (char_length(trim(body)) between 1 and 500),
+  created_at     timestamptz not null default now()
+);
+
+create index if not exists messages_room_created_idx
+  on public.messages (room_code, created_at);
+
+-- Reactions are persisted for the Movie Night Summary's "top reactions"
+-- (Feature 6). The floating animation itself rides Realtime broadcast; these
+-- rows are the tally, not the delivery mechanism.
+create table if not exists public.reactions (
+  id             uuid primary key default gen_random_uuid(),
+  room_code      text not null references public.rooms(code) on delete cascade,
+  participant_id uuid references public.participants(id) on delete set null,
+  emoji          text not null check (char_length(emoji) between 1 and 8),
+  created_at     timestamptz not null default now()
+);
+
+create index if not exists reactions_room_idx on public.reactions (room_code);
+
+alter table public.messages  enable row level security;
+alter table public.reactions enable row level security;
+
+drop policy if exists "messages readable"   on public.messages;
+drop policy if exists "messages insertable" on public.messages;
+create policy "messages readable"   on public.messages for select using (true);
+create policy "messages insertable" on public.messages for insert with check (true);
+
+drop policy if exists "reactions readable"   on public.reactions;
+drop policy if exists "reactions insertable" on public.reactions;
+create policy "reactions readable"   on public.reactions for select using (true);
+create policy "reactions insertable" on public.reactions for insert with check (true);
+
 -- Storage ------------------------------------------------------------------
 -- Uploaded films live in a public `movies` bucket. Public read is intentional:
 -- the object path contains the room code, which is the credential, and a
@@ -117,6 +160,15 @@ begin
       and schemaname = 'public' and tablename = 'participants'
   ) then
     alter publication supabase_realtime add table public.participants;
+  end if;
+
+  -- Chat is delivered live via postgres_changes on this table.
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public' and tablename = 'messages'
+  ) then
+    alter publication supabase_realtime add table public.messages;
   end if;
 exception
   when others then

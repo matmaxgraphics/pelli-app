@@ -18,11 +18,14 @@ export function VideoStage({
   isHost,
   video,
   initialPlayback,
+  overlay,
 }: {
   code: string;
   isHost: boolean;
   video: RoomVideo;
   initialPlayback: PlaybackSnapshot;
+  /** Rendered over the film — e.g. floating reactions. Must not catch clicks. */
+  overlay?: React.ReactNode;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -59,6 +62,9 @@ export function VideoStage({
         preload="metadata"
         className="h-full w-full bg-black"
       />
+
+      {/* Reactions and other transient layers float over the film. */}
+      {overlay}
 
       {/* Guest autoplay gate — one tap satisfies the browser's gesture rule. */}
       {needsGesture && !isHost && (

@@ -4,6 +4,7 @@ import { useRoomLive } from "@/hooks/use-room-live";
 import { RoomLobby } from "./room-lobby";
 import { Player } from "./player";
 import type { RoomWithParticipants } from "@/types/room";
+import type { ChatMessage, Me } from "@/types/chat";
 
 /**
  * The live room. Owns the one Realtime subscription and decides what to show:
@@ -14,14 +15,16 @@ export function RoomView({
   code,
   inviteUrl,
   initialRoom,
-  youId,
+  me,
   isHost,
+  initialMessages,
 }: {
   code: string;
   inviteUrl: string;
   initialRoom: RoomWithParticipants;
-  youId: string | null;
+  me: Me;
   isHost: boolean;
+  initialMessages: ChatMessage[];
 }) {
   const live = useRoomLive(code, initialRoom);
 
@@ -30,10 +33,11 @@ export function RoomView({
       <Player
         code={code}
         isHost={isHost}
+        me={me}
         video={live.video}
         playback={live.playback}
         participants={live.participants}
-        youId={youId}
+        initialMessages={initialMessages}
       />
     );
   }
@@ -43,7 +47,7 @@ export function RoomView({
       code={code}
       inviteUrl={inviteUrl}
       participants={live.participants}
-      youId={youId}
+      youId={me.id}
       isHost={isHost}
     />
   );
