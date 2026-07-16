@@ -16,10 +16,12 @@ const buttonVariants = cva(
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
-        default: "h-10 px-5",
+        // h-11 matches Input, so a button beside a field lines up — and it
+        // clears the 44px touch target this app is built for.
+        default: "h-11 px-5",
         lg: "h-12 px-7 text-[0.95rem]",
         sm: "h-9 px-4",
-        icon: "h-10 w-10",
+        icon: "h-11 w-11",
       },
     },
     defaultVariants: {

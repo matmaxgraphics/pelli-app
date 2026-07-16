@@ -1,0 +1,94 @@
+-- Pelli — rooms and anonymous participants.
+-- Paste this whole file into the Supabase SQL editor and run it. Safe to re-run.
+
+-- A room is just a code. Everything else hangs off it.
+create table if not exists public.rooms (
+  code       text primary key,
+  status     text not null default 'waiting'
+             check (status in ('waiting', 'watching', 'ended')),
+  created_at timestamptz not null default now()
+);
+
+-- A participant is a name and a color. No account, no PII.
+create table if not exists public.participants (
+  id        uuid primary key default gen_random_uuid(),
+  room_code text not null references public.rooms(code) on delete cascade,
+  name      text not null check (char_length(trim(name)) between 1 and 24),
+  color     text not null,
+  role      text not null check (role in ('host', 'guest')),
+  joined_at timestamptz not null default now()
+);
+
+create index if not exists participants_room_code_idx
+  on public.participants (room_code);
+
+-- Exactly one host per room.
+create unique index if not exists participants_one_host_per_room
+  on public.participants (room_code)
+  where role = 'host';
+
+-- Row level security -------------------------------------------------------
+-- Pelli rooms are deliberately public-by-code: holding the code IS the
+-- credential, the same way a shared calendar link works. There is no account
+-- to scope rows to, and the only data stored is a display name and a color.
+-- So these policies are permissive by design, not by omission. Guessing a room
+-- means guessing 1 of ~729M codes.
+
+alter table public.rooms        enable row level security;
+alter table public.participants enable row level security;
+
+drop policy if exists "rooms readable"     on public.rooms;
+drop policy if exists "rooms insertable"   on public.rooms;
+drop policy if exists "rooms updatable"    on public.rooms;
+
+create policy "rooms readable"   on public.rooms for select using (true);
+create policy "rooms insertable" on public.rooms for insert with check (true);
+create policy "rooms updatable"  on public.rooms for update using (true) with check (true);
+
+drop policy if exists "participants readable"   on public.participants;
+drop policy if exists "participants insertable" on public.participants;
+drop policy if exists "participants deletable"  on public.participants;
+
+create policy "participants readable"   on public.participants for select using (true);
+create policy "participants insertable" on public.participants for insert with check (true);
+create policy "participants deletable"  on public.participants for delete using (true);
+
+-- Realtime -----------------------------------------------------------------
+-- The lobby streams participant inserts so the host watches their person
+-- arrive; Feature 3 broadcasts playback over the same publication.
+--
+-- The SQL editor runs this file as one transaction, so anything that raises in
+-- here would roll back the tables above with it. Hence: create the publication
+-- if the project doesn't have one, and swallow anything unexpected — Realtime
+-- is an enhancement, and it must never be the reason the schema fails to land.
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication where pubname = 'supabase_realtime'
+  ) then
+    create publication supabase_realtime;
+  end if;
+
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public' and tablename = 'rooms'
+  ) then
+    alter publication supabase_realtime add table public.rooms;
+  end if;
+
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public' and tablename = 'participants'
+  ) then
+    alter publication supabase_realtime add table public.participants;
+  end if;
+exception
+  when others then
+    raise warning 'Realtime publication not configured (%). Tables are still created; enable Realtime for rooms/participants in the dashboard.', sqlerrm;
+end $$;
+
+-- PostgREST caches the schema; nudge it so the new tables are visible at once
+-- instead of after the next automatic reload.
+notify pgrst, 'reload schema';
