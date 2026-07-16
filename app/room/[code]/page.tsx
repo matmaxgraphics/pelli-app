@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
-import { RoomLobby } from "@/components/room/room-lobby";
+import { RoomView } from "@/components/room/room-view";
 import { getRoom } from "@/services/rooms";
 import { recallSeat } from "@/lib/session";
 import { getRequestOrigin } from "@/lib/origin";
@@ -31,11 +31,12 @@ export default async function RoomPage(props: PageProps<"/room/[code]">) {
 
   return (
     <main className="flex-1">
-      <RoomLobby
+      <RoomView
         code={code}
         inviteUrl={inviteUrl}
-        initialParticipants={room.participants}
+        initialRoom={room}
         youId={you.id}
+        isHost={you.role === "host"}
       />
     </main>
   );

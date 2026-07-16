@@ -1,30 +1,31 @@
 "use client";
 
-import { useRoomParticipants } from "@/hooks/use-room-participants";
 import { InvitePanel } from "./invite-panel";
 import { RoomPresence } from "./room-presence";
 import { ParticipantChip } from "./participant-dot";
+import { VideoSourceForm } from "./video-source-form";
 import type { Participant } from "@/types/room";
 
 /**
  * The room before the film starts: who's here, and how to get your person in.
  *
- * This is a real state, not a placeholder — the night genuinely hasn't started
- * until both people are here. Feature 3 replaces the invite column with the
- * player once someone picks a film.
+ * A real state, not a placeholder — the night hasn't started until someone
+ * picks a film. Presentational: RoomView owns the live subscription and passes
+ * participants in. The host also gets the film picker here; the guest waits.
  */
 export function RoomLobby({
   code,
   inviteUrl,
-  initialParticipants,
+  participants,
   youId,
+  isHost,
 }: {
   code: string;
   inviteUrl: string;
-  initialParticipants: Participant[];
+  participants: Participant[];
   youId: string | null;
+  isHost: boolean;
 }) {
-  const participants = useRoomParticipants(code, initialParticipants);
   const everyoneHere = participants.length >= 2;
 
   return (
@@ -35,13 +36,13 @@ export function RoomLobby({
             {everyoneHere ? "You're both here" : "Your room is ready"}
           </p>
           <h1 className="mt-3 text-balance text-3xl font-semibold tracking-tight md:text-4xl">
-            {everyoneHere
-              ? "Same couch, miles apart."
-              : "Now bring your person in."}
+            {everyoneHere ? "Same couch, miles apart." : "Now bring your person in."}
           </h1>
           <p className="mt-3 text-pretty leading-relaxed text-muted-foreground">
             {everyoneHere
-              ? "Everyone's in the room. Next you'll pick a film and press play together."
+              ? isHost
+                ? "Everyone's here. Choose tonight's film and you'll press play together."
+                : "Everyone's here. The host is choosing tonight's film."
               : "Send them the link, the code, or the QR — whichever's easiest. This page updates the moment they arrive."}
           </p>
         </header>
@@ -76,11 +77,13 @@ export function RoomLobby({
             </section>
           </div>
 
-          <InvitePanel
-            code={code}
-            inviteUrl={inviteUrl}
-            connected={everyoneHere}
-          />
+          {/* Everyone can see the invite; the host also gets the film picker
+              below it. Once a film is set, RoomView swaps this whole screen for
+              the player. */}
+          <div className="space-y-6">
+            <InvitePanel code={code} inviteUrl={inviteUrl} connected={everyoneHere} />
+            {isHost && <VideoSourceForm code={code} />}
+          </div>
         </div>
       </div>
     </div>

@@ -9,6 +9,20 @@ create table if not exists public.rooms (
   created_at timestamptz not null default now()
 );
 
+-- The film, and the last playback snapshot. Kept on the room so a refresh or a
+-- late join lands in the right place; live sync rides Realtime broadcast on top
+-- (see hooks/use-playback-sync.ts). Added separately so this file re-runs clean
+-- over an earlier install.
+alter table public.rooms add column if not exists video_url  text;
+alter table public.rooms add column if not exists video_name text;
+alter table public.rooms add column if not exists video_path text;
+alter table public.rooms
+  add column if not exists playback_position double precision not null default 0;
+alter table public.rooms
+  add column if not exists is_playing boolean not null default false;
+alter table public.rooms
+  add column if not exists playback_updated_at timestamptz;
+
 -- A participant is a name and a color. No account, no PII.
 create table if not exists public.participants (
   id        uuid primary key default gen_random_uuid(),
@@ -52,6 +66,26 @@ drop policy if exists "participants deletable"  on public.participants;
 create policy "participants readable"   on public.participants for select using (true);
 create policy "participants insertable" on public.participants for insert with check (true);
 create policy "participants deletable"  on public.participants for delete using (true);
+
+-- Storage ------------------------------------------------------------------
+-- Uploaded films live in a public `movies` bucket. Public read is intentional:
+-- the object path contains the room code, which is the credential, and a
+-- <video> tag needs a directly fetchable URL anyway. Same trust model as the
+-- rooms table.
+insert into storage.buckets (id, name, public)
+values ('movies', 'movies', true)
+on conflict (id) do update set public = true;
+
+drop policy if exists "movies readable"   on storage.objects;
+drop policy if exists "movies uploadable" on storage.objects;
+
+create policy "movies readable"
+  on storage.objects for select
+  using (bucket_id = 'movies');
+
+create policy "movies uploadable"
+  on storage.objects for insert
+  with check (bucket_id = 'movies');
 
 -- Realtime -----------------------------------------------------------------
 -- The lobby streams participant inserts so the host watches their person

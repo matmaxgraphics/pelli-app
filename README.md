@@ -16,8 +16,8 @@ the onchain plan.
 | - | ---------------------------------------------- | ----------- |
 | 1 | Landing page                                   | Done        |
 | 2 | Room creation + guest identity (code, link, QR) | Done        |
-| 3 | Video upload + synchronized playback           | Next        |
-| 4 | Chat, typing indicator, reactions              | Planned     |
+| 3 | Video upload/link + synchronized playback      | Done        |
+| 4 | Chat, typing indicator, reactions              | Next        |
 | 5 | AI companion (contextual, spoiler-safe)        | Planned     |
 | 6 | Movie Night Summary + onchain keepsake mint    | Planned     |
 
@@ -79,8 +79,8 @@ app/                Routes only, thin. Server Components by default.
 components/
   ui/               shadcn/ui primitives, retuned to the Pelli tokens
   marketing/        Landing sections
-  room/             Identity, invite, presence
-hooks/              Client hooks (Realtime presence)
+  room/             Identity, invite, presence, player + sync
+hooks/              Client hooks (Realtime presence + playback sync)
 lib/                cn, env, supabase clients, cookie session, origin
 services/           Data boundary — the only place that touches the tables
 server/             Server actions
@@ -101,6 +101,14 @@ types/  utils/  constants/
 - **The anon key is used server-side too.** Pelli has no accounts, so the server
   holds no privilege a code-holder lacks; that keeps RLS the single description
   of access.
+- **Playback is host-authoritative.** The host's play/pause/seek broadcast over a
+  Supabase Realtime channel; a heartbeat carries its position every 1.5s. Guests
+  never broadcast — they apply events and hard-seek whenever they drift past
+  0.5s. Everything reconciles on video *position*, never wall-clock, so the two
+  machines' clocks don't matter (`hooks/use-playback-sync.ts`).
+- **Films come from upload or link.** Uploads go straight from the browser to a
+  public `movies` Storage bucket (capped ~50MB for the free tier); a pasted MP4
+  link is the fast path. Both resolve to a URL the room records.
 
 ## Onchain
 

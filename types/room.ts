@@ -17,10 +17,30 @@ export interface Participant {
   joinedAt: string;
 }
 
+/** The film a room is watching, plus the last playback snapshot we persisted. */
+export interface RoomVideo {
+  /** Playable URL — a Supabase Storage public URL, or an external MP4 link. */
+  url: string;
+  /** Human label shown in the UI (the filename, or the host's title). */
+  name: string;
+  /** Storage object path when uploaded; null for an external URL. */
+  path: string | null;
+}
+
+/** Last known playback state, persisted so a refresh or late join lands right. */
+export interface PlaybackSnapshot {
+  position: number;
+  isPlaying: boolean;
+  /** Server timestamp of the last discrete control event. */
+  updatedAt: string | null;
+}
+
 export interface Room {
   code: string;
   status: RoomStatus;
   createdAt: string;
+  video: RoomVideo | null;
+  playback: PlaybackSnapshot;
 }
 
 /** A room plus everyone currently in it. */

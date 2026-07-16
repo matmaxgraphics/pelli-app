@@ -6,6 +6,7 @@ import type {
   GuestIdentity,
   Participant,
   ParticipantRole,
+  RoomVideo,
   RoomWithParticipants,
   RoomStatus,
 } from "@/types/room";
@@ -27,6 +28,37 @@ interface RoomRow {
   code: string;
   status: RoomStatus;
   created_at: string;
+  video_url: string | null;
+  video_name: string | null;
+  video_path: string | null;
+  playback_position: number;
+  is_playing: boolean;
+  playback_updated_at: string | null;
+}
+
+/** Every column getRoom reads. Kept as one string so the shape is in one place. */
+const ROOM_COLUMNS =
+  "code, status, created_at, video_url, video_name, video_path, playback_position, is_playing, playback_updated_at";
+
+function toRoom(row: RoomRow, participants: Participant[]): RoomWithParticipants {
+  return {
+    code: row.code,
+    status: row.status,
+    createdAt: row.created_at,
+    video: row.video_url
+      ? {
+          url: row.video_url,
+          name: row.video_name ?? "Tonight's film",
+          path: row.video_path,
+        }
+      : null,
+    playback: {
+      position: row.playback_position ?? 0,
+      isPlaying: row.is_playing ?? false,
+      updatedAt: row.playback_updated_at,
+    },
+    participants,
+  };
 }
 
 interface ParticipantRow {
@@ -160,7 +192,7 @@ export async function getRoom(
 
   const { data: room, error: roomError } = await supabase
     .from("rooms")
-    .select("code, status, created_at")
+    .select(ROOM_COLUMNS)
     .eq("code", code)
     .maybeSingle<RoomRow>();
 
@@ -186,12 +218,68 @@ export async function getRoom(
     );
   }
 
-  return {
-    code: room.code,
-    status: room.status,
-    createdAt: room.created_at,
-    participants: (participants ?? []).map(toParticipant),
-  };
+  return toRoom(room, (participants ?? []).map(toParticipant));
+}
+
+/**
+ * Set the film for a room and move it to "watching". Resets playback to the
+ * start so both people begin together. Only the host reaches this.
+ */
+export async function setRoomVideo(
+  rawCode: string,
+  video: RoomVideo,
+): Promise<void> {
+  const code = normalizeRoomCode(rawCode);
+  const supabase = createSupabaseServerClient();
+
+  const { error } = await supabase
+    .from("rooms")
+    .update({
+      video_url: video.url,
+      video_name: video.name,
+      video_path: video.path,
+      status: "watching",
+      playback_position: 0,
+      is_playing: false,
+      playback_updated_at: new Date().toISOString(),
+    })
+    .eq("code", code);
+
+  if (error) {
+    throw new RoomError(
+      `Could not set the film: ${error.message}`,
+      "unavailable",
+    );
+  }
+}
+
+/**
+ * Persist a playback snapshot on a discrete control event (play/pause/seek).
+ * Not called on every heartbeat — this is the refresh/late-join fallback, and
+ * live sync rides Realtime broadcast instead.
+ */
+export async function updatePlayback(
+  rawCode: string,
+  snapshot: { position: number; isPlaying: boolean },
+): Promise<void> {
+  const code = normalizeRoomCode(rawCode);
+  const supabase = createSupabaseServerClient();
+
+  const { error } = await supabase
+    .from("rooms")
+    .update({
+      playback_position: snapshot.position,
+      is_playing: snapshot.isPlaying,
+      playback_updated_at: new Date().toISOString(),
+    })
+    .eq("code", code);
+
+  if (error) {
+    throw new RoomError(
+      `Could not sync playback: ${error.message}`,
+      "unavailable",
+    );
+  }
 }
 
 /** Whether a code corresponds to a real room. Used by the join form. */
