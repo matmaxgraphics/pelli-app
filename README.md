@@ -120,5 +120,4 @@ types/  utils/  constants/
 The Movie Night Summary (Feature 6) is minted as a keepsake on Monad testnet —
 an immutable record of the night (film, participants, date, top reactions) that
 both people keep. It is the product thesis made permanent, not crypto bolted on.
-The core experience never blocks on a wallet. The contract is not written yet;
-the address will be listed here on deploy.
+The core experience never blocks on a wallet. The contract is deployed on Monad testnet at: `0x5dfd273b1bf95f8f1df19d66d607ae9ada9c7946`.

@@ -282,6 +282,24 @@ export async function updatePlayback(
   }
 }
 
+/** End the night — move the room to "ended" so everyone sees the Summary. */
+export async function endRoom(rawCode: string): Promise<void> {
+  const code = normalizeRoomCode(rawCode);
+  const supabase = createSupabaseServerClient();
+
+  const { error } = await supabase
+    .from("rooms")
+    .update({ status: "ended", is_playing: false })
+    .eq("code", code);
+
+  if (error) {
+    throw new RoomError(
+      `Could not end the night: ${error.message}`,
+      "unavailable",
+    );
+  }
+}
+
 /** Whether a code corresponds to a real room. Used by the join form. */
 export async function roomExists(rawCode: string): Promise<boolean> {
   return (await getRoom(rawCode)) !== null;

@@ -1,6 +1,7 @@
 "use client";
 
-import { Radio } from "lucide-react";
+import { useState, useTransition } from "react";
+import { Radio, Sparkles } from "lucide-react";
 import { VideoStage } from "./video-stage";
 import { RoomPresence } from "./room-presence";
 import { ParticipantDot } from "./participant-dot";
@@ -8,6 +9,7 @@ import { ReactionBar } from "./reaction-bar";
 import { FloatingReactions } from "./floating-reactions";
 import { ChatPanel } from "./chat-panel";
 import { useReactions } from "@/hooks/use-reactions";
+import { endNightAction } from "@/server/summary-actions";
 import type { Participant, PlaybackSnapshot, RoomVideo } from "@/types/room";
 import type { ChatMessage, Me } from "@/types/chat";
 
@@ -34,6 +36,17 @@ export function Player({
 }) {
   const host = participants.find((p) => p.role === "host");
   const { floats, react } = useReactions(code, me);
+  const [ending, startEnding] = useTransition();
+  const [endError, setEndError] = useState<string | null>(null);
+
+  function endNight() {
+    setEndError(null);
+    startEnding(async () => {
+      const result = await endNightAction(code);
+      // On success the room UPDATE flips everyone to the Summary; nothing to do.
+      if (result.error) setEndError(result.error);
+    });
+  }
 
   return (
     <div className="container py-6 md:py-8">
@@ -77,7 +90,24 @@ export function Player({
 
             <RoomPresence participants={participants} youId={me.id} />
 
-            {!isHost && (
+            {isHost ? (
+              <div className="text-center">
+                <button
+                  type="button"
+                  onClick={endNight}
+                  disabled={ending}
+                  className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  {ending ? "Wrapping up…" : "End the night & make a keepsake"}
+                </button>
+                {endError && (
+                  <p role="alert" className="mt-1 text-xs text-destructive">
+                    {endError}
+                  </p>
+                )}
+              </div>
+            ) : (
               <p className="text-center text-sm text-muted-foreground">
                 Play, pause and seek follow the host — you stay on the same second.
               </p>
