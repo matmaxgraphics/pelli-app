@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { rowToVideo, sameVideo } from "@/utils/room-video";
 import type { AvatarColorId } from "@/constants/avatar-colors";
 import type {
   Participant,
@@ -106,16 +107,11 @@ export function useRoomLive(
         },
         (payload) => {
           const row = payload.new as RoomRow;
+          const next = rowToVideo(row);
           setState((current) => ({
             ...current,
             status: row.status,
-            video: row.video_url
-              ? {
-                  url: row.video_url,
-                  name: row.video_name ?? "Tonight's film",
-                  path: row.video_path,
-                }
-              : null,
+            video: sameVideo(current.video, next) ? current.video : next,
             playback: {
               position: row.playback_position ?? 0,
               isPlaying: row.is_playing ?? false,

@@ -1,10 +1,11 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { createRoom, joinRoom, roomExists, RoomError } from "@/services/rooms";
+import { createRoom, getRoom, joinRoom, RoomError } from "@/services/rooms";
 import { rememberIdentity, saveSeat } from "@/lib/session";
 import { isAvatarColorId } from "@/constants/avatar-colors";
 import { isValidRoomCode, normalizeRoomCode } from "@/utils/room-code";
+import { isRoomFull, ROOM_FULL_MESSAGE } from "@/utils/room-capacity";
 import type { GuestIdentity } from "@/types/room";
 import type { RoomFormState } from "@/types/room-form";
 
@@ -27,7 +28,7 @@ function parseIdentity(formData: FormData): ParsedIdentity {
   const color = String(formData.get("color") ?? "");
 
   if (!name) {
-    return { ok: false, error: "Add your name so your person knows who's here." };
+    return { ok: false, error: "Add your name so everyone knows who's here." };
   }
   if (name.length > MAX_NAME_LENGTH) {
     return {
@@ -103,10 +104,14 @@ export async function checkRoomCodeAction(
   }
 
   try {
-    if (!(await roomExists(rawCode))) {
+    const room = await getRoom(rawCode);
+    if (!room) {
       return {
-        error: "No room with that code. Double-check it with your person.",
+        error: "No room with that code. Double-check it with whoever started the night.",
       };
+    }
+    if (isRoomFull(room.participants.length)) {
+      return { error: ROOM_FULL_MESSAGE };
     }
   } catch (error) {
     if (error instanceof RoomError) return { error: error.message };

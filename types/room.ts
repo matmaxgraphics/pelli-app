@@ -19,11 +19,16 @@ export interface Participant {
 
 /** The film a room is watching, plus the last playback snapshot we persisted. */
 export interface RoomVideo {
-  /** Playable URL — a Supabase Storage public URL, or an external MP4 link. */
-  url: string;
+  /**
+   * "link" plays a pasted URL as-is. "upload" is a file we store: it has no
+   * permanent URL, because each viewer is handed a short-lived signed one.
+   */
+  kind: "link" | "upload";
+  /** The playable URL for a link; null for an upload. */
+  url: string | null;
   /** Human label shown in the UI (the filename, or the host's title). */
   name: string;
-  /** Storage object path when uploaded; null for an external URL. */
+  /** Storage object key for an upload; null for a link. */
   path: string | null;
 }
 

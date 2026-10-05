@@ -41,6 +41,64 @@ create unique index if not exists participants_one_host_per_room
   on public.participants (room_code)
   where role = 'host';
 
+-- Room capacity ------------------------------------------------------------
+-- A room holds at most 5 people, host included (keep in step with
+-- MAX_PARTICIPANTS in constants/room.ts). Enforced here rather than only in the
+-- app because the check-then-insert in code is racy: two people joining a room
+-- at 4/5 would both pass it. Locking the room row serializes concurrent joins,
+-- so exactly one of them gets the last seat.
+--
+-- security definer so the lock and count work regardless of who is inserting.
+create or replace function public.enforce_room_capacity()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  seated integer;
+begin
+  perform 1 from public.rooms where code = new.room_code for update;
+
+  select count(*) into seated
+  from public.participants
+  where room_code = new.room_code;
+
+  if seated >= 5 then
+    raise exception 'room_full: this room holds at most 5 people'
+      using errcode = 'check_violation';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists participants_capacity on public.participants;
+create trigger participants_capacity
+  before insert on public.participants
+  for each row execute function public.enforce_room_capacity();
+
+-- One color and one name per room, for the same reason: the app checks, but
+-- only the database can make two simultaneous joins agree. Guarded so that
+-- leftover test rows which already collide can never roll back the whole file.
+do $$
+begin
+  create unique index if not exists participants_room_color_uniq
+    on public.participants (room_code, color);
+exception
+  when others then
+    raise warning 'Per-room color uniqueness not enforced (%). Existing rows probably collide; the app still checks in code.', sqlerrm;
+end $$;
+
+do $$
+begin
+  create unique index if not exists participants_room_name_uniq
+    on public.participants (room_code, lower(name));
+exception
+  when others then
+    raise warning 'Per-room name uniqueness not enforced (%). Existing rows probably collide; the app still checks in code.', sqlerrm;
+end $$;
+
 -- Row level security -------------------------------------------------------
 -- Pelli rooms are deliberately public-by-code: holding the code IS the
 -- credential, the same way a shared calendar link works. There is no account
@@ -111,24 +169,23 @@ create policy "reactions readable"   on public.reactions for select using (true)
 create policy "reactions insertable" on public.reactions for insert with check (true);
 
 -- Storage ------------------------------------------------------------------
--- Uploaded films live in a public `movies` bucket. Public read is intentional:
--- the object path contains the room code, which is the credential, and a
--- <video> tag needs a directly fetchable URL anyway. Same trust model as the
--- rooms table.
-insert into storage.buckets (id, name, public)
-values ('movies', 'movies', true)
-on conflict (id) do update set public = true;
-
-drop policy if exists "movies readable"   on storage.objects;
-drop policy if exists "movies uploadable" on storage.objects;
-
-create policy "movies readable"
-  on storage.objects for select
-  using (bucket_id = 'movies');
-
-create policy "movies uploadable"
-  on storage.objects for insert
-  with check (bucket_id = 'movies');
+-- Films no longer live in Supabase. They are in a private Cloudflare R2 bucket,
+-- reached only through presigned URLs the server mints for the room's host
+-- (upload) and members (watch) — see services/storage.ts.
+--
+-- Earlier versions had a public `movies` bucket here that any anonymous client
+-- could write to. These two statements close it: with its policies gone, nobody
+-- can read or add to it through the API. Existing objects can be deleted from
+-- the dashboard (Storage -> movies). Guarded, like every optional block here,
+-- so a permissions hiccup can never roll back the tables above.
+do $$
+begin
+  drop policy if exists "movies readable"   on storage.objects;
+  drop policy if exists "movies uploadable" on storage.objects;
+exception
+  when others then
+    raise warning 'Could not drop the old movies policies (%). Remove them in the dashboard: Storage -> Policies.', sqlerrm;
+end $$;
 
 -- Realtime -----------------------------------------------------------------
 -- The lobby streams participant inserts so the host watches their person

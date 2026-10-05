@@ -5,6 +5,7 @@ import QRCode from "react-qr-code";
 import { Check, Copy, QrCode } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatRoomCode } from "@/utils/room-code";
+import { isRoomFull, spotsLeft } from "@/utils/room-capacity";
 import { cn } from "@/lib/utils";
 
 /**
@@ -15,30 +16,39 @@ import { cn } from "@/lib/utils";
 export function InvitePanel({
   code,
   inviteUrl,
-  /** Once both people are in, this stops being an invite and becomes a receipt. */
-  connected = false,
+  headcount,
 }: {
   code: string;
   /** Built server-side (see lib/origin.ts) so the QR is right on first paint. */
   inviteUrl: string;
-  connected?: boolean;
+  /** How many people are in the room now. */
+  headcount: number;
 }) {
   const [showQr, setShowQr] = useState(false);
+  const full = isRoomFull(headcount);
+  const left = spotsLeft(headcount);
 
   return (
     <div className="rounded-2xl border border-border bg-card p-5 shadow-subtle sm:p-6">
-      <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
-        {connected ? "Room code" : "Invite your person"}
-      </h2>
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
+          {full ? "Room code" : "Invite your people"}
+        </h2>
+        <span className="text-xs text-muted-foreground">
+          {full
+            ? "Room is full"
+            : `${left} ${left === 1 ? "spot" : "spots"} left`}
+        </span>
+      </div>
 
       <div className="mt-4">
-        {/* Once connected the heading above already says "Room code" — don't
-            say it twice. */}
-        {!connected && <p className="text-xs text-muted-foreground">Room code</p>}
+        {/* When full the heading above already says "Room code" — don't say it
+            twice. */}
+        {!full && <p className="text-xs text-muted-foreground">Room code</p>}
         <p
           className={cn(
             "font-mono text-3xl font-semibold tracking-[0.18em] text-foreground sm:text-4xl",
-            !connected && "mt-1",
+            !full && "mt-1",
           )}
         >
           {formatRoomCode(code)}

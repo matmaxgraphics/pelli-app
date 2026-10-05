@@ -2,6 +2,8 @@ import "server-only";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { generateRoomCode, normalizeRoomCode } from "@/utils/room-code";
+import { isRoomFull, ROOM_FULL_MESSAGE } from "@/utils/room-capacity";
+import { rowToVideo } from "@/utils/room-video";
 import type {
   GuestIdentity,
   Participant,
@@ -45,13 +47,7 @@ function toRoom(row: RoomRow, participants: Participant[]): RoomWithParticipants
     code: row.code,
     status: row.status,
     createdAt: row.created_at,
-    video: row.video_url
-      ? {
-          url: row.video_url,
-          name: row.video_name ?? "Tonight's film",
-          path: row.video_path,
-        }
-      : null,
+    video: rowToVideo(row),
     playback: {
       position: row.playback_position ?? 0,
       isPlaying: row.is_playing ?? false,
@@ -85,7 +81,12 @@ function toParticipant(row: ParticipantRow): Participant {
 export class RoomError extends Error {
   constructor(
     message: string,
-    readonly kind: "not_found" | "name_taken" | "unavailable",
+    readonly kind:
+      | "not_found"
+      | "name_taken"
+      | "color_taken"
+      | "room_full"
+      | "unavailable",
   ) {
     super(message);
     this.name = "RoomError";
@@ -134,13 +135,38 @@ async function addParticipant(
     .single<ParticipantRow>();
 
   if (error || !data) {
-    throw new RoomError(
-      `Could not join the room: ${error?.message ?? "unknown error"}`,
-      "unavailable",
-    );
+    throw joinFailure(error);
   }
 
   return toParticipant(data);
+}
+
+/**
+ * Turn a failed participant insert into something a person can act on. The
+ * database is the real gatekeeper (capacity trigger, per-room unique color and
+ * name), so this is where its refusals get their wording.
+ */
+function joinFailure(error: { code?: string; message: string } | null): RoomError {
+  const message = error?.message ?? "unknown error";
+
+  if (message.includes("room_full")) {
+    return new RoomError(ROOM_FULL_MESSAGE, "room_full");
+  }
+  if (error?.code === UNIQUE_VIOLATION) {
+    if (message.includes("participants_room_color_uniq")) {
+      return new RoomError(
+        "Someone just took that color. Pick another.",
+        "color_taken",
+      );
+    }
+    if (message.includes("participants_room_name_uniq")) {
+      return new RoomError(
+        "Someone in this room already has that name. Try another.",
+        "name_taken",
+      );
+    }
+  }
+  return new RoomError(`Could not join the room: ${message}`, "unavailable");
 }
 
 /** Create a room and seat the host in it. */
@@ -167,6 +193,13 @@ export async function joinRoom(
     );
   }
 
+  // These checks give the friendly answer early. They are not the gate: two
+  // simultaneous joins can both pass them, so the database enforces the same
+  // rules and addParticipant maps its refusals to the same errors.
+  if (isRoomFull(room.participants.length)) {
+    throw new RoomError(ROOM_FULL_MESSAGE, "room_full");
+  }
+
   // Two identical names on one playhead makes presence unreadable — and the
   // whole product is knowing who is who.
   const taken = room.participants.some(
@@ -176,6 +209,13 @@ export async function joinRoom(
     throw new RoomError(
       `Someone in this room is already called ${identity.name.trim()}. Try another name.`,
       "name_taken",
+    );
+  }
+
+  if (room.participants.some((p) => p.color === identity.color)) {
+    throw new RoomError(
+      "Someone in this room already has that color. Pick another.",
+      "color_taken",
     );
   }
 
@@ -235,9 +275,11 @@ export async function setRoomVideo(
   const { error } = await supabase
     .from("rooms")
     .update({
-      video_url: video.url,
+      // A link has a URL and no key; an upload has a key and no stored URL
+      // (viewers are handed a signed one). Exactly one of the two is set.
+      video_url: video.kind === "link" ? video.url : null,
       video_name: video.name,
-      video_path: video.path,
+      video_path: video.kind === "upload" ? video.path : null,
       status: "watching",
       playback_position: 0,
       is_playing: false,
@@ -298,9 +340,4 @@ export async function endRoom(rawCode: string): Promise<void> {
       "unavailable",
     );
   }
-}
-
-/** Whether a code corresponds to a real room. Used by the join form. */
-export async function roomExists(rawCode: string): Promise<boolean> {
-  return (await getRoom(rawCode)) !== null;
 }

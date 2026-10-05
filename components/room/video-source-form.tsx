@@ -5,30 +5,48 @@ import { AlertCircle, Link2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { createUploadAction } from "@/server/upload-actions";
 import { setVideoAction } from "@/server/playback-actions";
-import { uploadMovie, validateVideoFile } from "@/lib/supabase/storage";
-import { ACCEPTED_VIDEO_EXTENSIONS, MAX_UPLOAD_BYTES } from "@/constants/playback";
+import { putFile, UploadAborted } from "@/lib/upload-file";
+import { ACCEPTED_VIDEO_EXTENSIONS } from "@/constants/playback";
+import {
+  MAX_UPLOAD_MB,
+  titleFromFileName,
+  validateVideoFile,
+} from "@/utils/video-file";
 import { cn } from "@/lib/utils";
 
 type Mode = "upload" | "link";
+type Phase = "idle" | "preparing" | "uploading" | "finishing" | "starting";
 
 /**
  * How the host chooses tonight's film. Two ways in: upload a file, or paste a
  * direct link. On success the room row flips to "watching" and everyone's view
  * becomes the player over the same Realtime channel — nothing to do here but
- * report failure.
+ * show progress and report failure.
+ *
+ * `uploadEnabled` is false until film storage is configured; then only the link
+ * path exists, rather than an Upload tab that can't work.
  */
-export function VideoSourceForm({ code }: { code: string }) {
-  const [mode, setMode] = useState<Mode>("upload");
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
+export function VideoSourceForm({
+  code,
+  uploadEnabled,
+}: {
+  code: string;
+  uploadEnabled: boolean;
+}) {
+  const [mode, setMode] = useState<Mode>(uploadEnabled ? "upload" : "link");
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const fileRef = useRef<HTMLInputElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const [url, setUrl] = useState("");
   const [title, setTitle] = useState("");
 
-  const maxMb = Math.round(MAX_UPLOAD_BYTES / (1024 * 1024));
+  const busy = phase !== "idle";
+  const percent = Math.round(progress * 100);
 
   async function handleUpload() {
     const file = fileRef.current?.files?.[0];
@@ -43,31 +61,62 @@ export function VideoSourceForm({ code }: { code: string }) {
     }
 
     setError(null);
-    setBusy(true);
-    setStatus("Uploading…");
+    setProgress(0);
+    setPhase("preparing");
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
-      const uploaded = await uploadMovie(file, code);
-      setStatus("Starting the room…");
-      const result = await setVideoAction({
+      // 1. Ask the server for permission — it only says yes to the host.
+      const permit = await createUploadAction({
         code,
-        url: uploaded.url,
-        name: uploaded.name,
-        path: uploaded.path,
+        fileName: file.name,
+        contentType: file.type,
+        size: file.size,
+      });
+      if (permit.error !== null) {
+        setError(permit.error);
+        setPhase("idle");
+        return;
+      }
+
+      // 2. Send the film straight to storage.
+      setPhase("uploading");
+      await putFile({
+        url: permit.uploadUrl,
+        file,
+        contentType: permit.contentType,
+        onProgress: setProgress,
+        signal: controller.signal,
+      });
+
+      // 3. Tell the room it landed; the server checks it before accepting it.
+      setPhase("finishing");
+      const result = await setVideoAction({
+        kind: "upload",
+        code,
+        name: titleFromFileName(file.name),
+        key: permit.key,
       });
       if (result.error) {
         setError(result.error);
-        setBusy(false);
-        setStatus(null);
+        setPhase("idle");
       }
-      // Success: the room UPDATE broadcast swaps this view for the player.
-    } catch (uploadError) {
+      // Success: the room UPDATE swaps this view for the player.
+    } catch (caught) {
+      if (caught instanceof UploadAborted) {
+        setPhase("idle");
+        return;
+      }
       setError(
-        uploadError instanceof Error
-          ? uploadError.message
+        caught instanceof Error
+          ? caught.message
           : "Something went wrong uploading that file.",
       );
-      setBusy(false);
-      setStatus(null);
+      setPhase("idle");
+    } finally {
+      abortRef.current = null;
     }
   }
 
@@ -77,20 +126,25 @@ export function VideoSourceForm({ code }: { code: string }) {
       return;
     }
     setError(null);
-    setBusy(true);
-    setStatus("Starting the room…");
+    setPhase("starting");
     const result = await setVideoAction({
+      kind: "link",
       code,
-      url: url.trim(),
       name: title.trim() || fileNameFromUrl(url),
-      path: null,
+      url: url.trim(),
     });
     if (result.error) {
       setError(result.error);
-      setBusy(false);
-      setStatus(null);
+      setPhase("idle");
     }
   }
+
+  const phaseLabel =
+    phase === "preparing"
+      ? "Getting ready…"
+      : phase === "uploading"
+        ? `Uploading… ${percent}%`
+        : "Starting the room…";
 
   return (
     <div className="rounded-2xl border border-border bg-card p-5 shadow-subtle sm:p-6">
@@ -98,22 +152,26 @@ export function VideoSourceForm({ code }: { code: string }) {
         Choose tonight&apos;s film
       </h2>
       <p className="mt-2 text-sm text-muted-foreground">
-        Upload a clip or paste a link. Your person watches it in step with you.
+        {uploadEnabled
+          ? "Upload a film or paste a link. Everyone watches it in step with you."
+          : "Paste a link to a film. Everyone watches it in step with you."}
       </p>
 
-      <div className="mt-4 inline-flex rounded-lg border border-border bg-muted/50 p-1">
-        <ModeTab active={mode === "upload"} onClick={() => setMode("upload")} disabled={busy}>
-          <Upload className="h-4 w-4" />
-          Upload
-        </ModeTab>
-        <ModeTab active={mode === "link"} onClick={() => setMode("link")} disabled={busy}>
-          <Link2 className="h-4 w-4" />
-          Paste a link
-        </ModeTab>
-      </div>
+      {uploadEnabled && (
+        <div className="mt-4 inline-flex rounded-lg border border-border bg-muted/50 p-1">
+          <ModeTab active={mode === "upload"} onClick={() => setMode("upload")} disabled={busy}>
+            <Upload className="h-4 w-4" />
+            Upload
+          </ModeTab>
+          <ModeTab active={mode === "link"} onClick={() => setMode("link")} disabled={busy}>
+            <Link2 className="h-4 w-4" />
+            Paste a link
+          </ModeTab>
+        </div>
+      )}
 
       <div className="mt-5">
-        {mode === "upload" ? (
+        {mode === "upload" && uploadEnabled ? (
           <div className="space-y-3">
             <Label htmlFor="film-file">Video file</Label>
             <input
@@ -132,11 +190,43 @@ export function VideoSourceForm({ code }: { code: string }) {
               )}
             />
             <p className="text-xs text-muted-foreground">
-              MP4 or WebM, up to {maxMb}MB. A short clip is perfect for a first watch.
+              MP4 or WebM, up to {MAX_UPLOAD_MB} MB. H.264 MP4 plays everywhere. It&apos;s
+              removed when the night ends.
             </p>
-            <Button onClick={handleUpload} disabled={busy} className="w-full">
-              {busy ? status ?? "Working…" : "Start watching"}
-            </Button>
+
+            {busy ? (
+              <div className="space-y-2" aria-live="polite">
+                <div
+                  role="progressbar"
+                  aria-label="Upload progress"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={phase === "uploading" ? percent : undefined}
+                  className="h-2 overflow-hidden rounded-full bg-muted"
+                >
+                  <div
+                    className="h-full rounded-full bg-primary transition-[width] duration-200"
+                    style={{ width: `${phase === "uploading" ? percent : 100}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>{phaseLabel}</span>
+                  {phase === "uploading" && (
+                    <button
+                      type="button"
+                      onClick={() => abortRef.current?.abort()}
+                      className="font-medium underline-offset-4 hover:text-foreground hover:underline"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <Button onClick={handleUpload} className="w-full">
+                Start watching
+              </Button>
+            )}
           </div>
         ) : (
           <div className="space-y-3">
@@ -148,7 +238,7 @@ export function VideoSourceForm({ code }: { code: string }) {
                 setUrl(event.target.value);
                 setError(null);
               }}
-              placeholder="https://example.com/clip.mp4"
+              placeholder="https://example.com/film.mp4"
               inputMode="url"
               disabled={busy}
             />
@@ -164,7 +254,7 @@ export function VideoSourceForm({ code }: { code: string }) {
               disabled={busy}
             />
             <Button onClick={handleLink} disabled={busy} className="w-full">
-              {busy ? status ?? "Working…" : "Start watching"}
+              {busy ? "Starting the room…" : "Start watching"}
             </Button>
           </div>
         )}

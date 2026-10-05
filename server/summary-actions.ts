@@ -1,13 +1,16 @@
 "use server";
 
-import { endRoom, getRoom } from "@/services/rooms";
-import { recallSeat } from "@/lib/session";
-import { isValidRoomCode } from "@/utils/room-code";
+import { endRoom } from "@/services/rooms";
+import { deleteFilm } from "@/services/storage";
+import { requireHost } from "@/lib/room-access";
 
 /**
- * End the night. Host-only, so a guest can't cut the evening short — the same
- * seat-cookie check the film picker uses. Everyone flips to the Summary off the
- * resulting room UPDATE.
+ * End the night. Host-only, so a guest can't cut the evening short. Everyone
+ * flips to the Summary off the resulting room UPDATE.
+ *
+ * It also deletes the film. Pelli keeps a night's memories (the Summary, the
+ * keepsake), not the movie: storage stays cheap, and nothing outlives the night
+ * that the people in it didn't make themselves.
  */
 
 export interface EndNightResult {
@@ -15,25 +18,17 @@ export interface EndNightResult {
 }
 
 export async function endNightAction(code: string): Promise<EndNightResult> {
-  if (!isValidRoomCode(code)) {
-    return { error: "That room code isn't valid." };
+  const guard = await requireHost(String(code), "end the night");
+  if (!guard.ok) return { error: guard.error };
+
+  const { room } = guard.seat;
+  await endRoom(guard.seat.code);
+
+  // After the room has ended, so a storage hiccup can never keep a night open.
+  // If the delete fails, the bucket's 1-day lifecycle rule is the backstop.
+  if (room.video?.kind === "upload" && room.video.path) {
+    await deleteFilm(room.video.path).catch(() => undefined);
   }
 
-  const seat = await recallSeat(code);
-  if (!seat) {
-    return { error: "Only the host can end the night." };
-  }
-
-  const room = await getRoom(code);
-  if (!room) {
-    return { error: "That room isn't here anymore." };
-  }
-
-  const host = room.participants.find((p) => p.role === "host");
-  if (!host || host.id !== seat) {
-    return { error: "Only the host can end the night." };
-  }
-
-  await endRoom(code);
   return { error: null };
 }

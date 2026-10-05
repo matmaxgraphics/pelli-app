@@ -20,6 +20,7 @@ export function RoomView({
   me,
   isHost,
   initialMessages,
+  uploadEnabled,
 }: {
   code: string;
   inviteUrl: string;
@@ -27,6 +28,8 @@ export function RoomView({
   me: Me;
   isHost: boolean;
   initialMessages: ChatMessage[];
+  /** Whether film storage is configured; decided on the server. */
+  uploadEnabled: boolean;
 }) {
   const live = useRoomLive(code, initialRoom);
 
@@ -62,6 +65,7 @@ export function RoomView({
       participants={live.participants}
       youId={me.id}
       isHost={isHost}
+      uploadEnabled={uploadEnabled}
     />
   );
 }

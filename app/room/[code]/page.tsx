@@ -5,6 +5,7 @@ import { getRoom } from "@/services/rooms";
 import { getMessages } from "@/services/messages";
 import { recallSeat } from "@/lib/session";
 import { getRequestOrigin } from "@/lib/origin";
+import { isR2Configured } from "@/lib/r2-env";
 import { isValidRoomCode, normalizeRoomCode } from "@/utils/room-code";
 
 export const metadata: Metadata = {
@@ -42,6 +43,7 @@ export default async function RoomPage(props: PageProps<"/room/[code]">) {
         me={{ id: you.id, name: you.name, color: you.color }}
         isHost={you.role === "host"}
         initialMessages={initialMessages}
+        uploadEnabled={isR2Configured()}
       />
     </main>
   );

@@ -4,10 +4,12 @@ import { InvitePanel } from "./invite-panel";
 import { RoomPresence } from "./room-presence";
 import { ParticipantChip } from "./participant-dot";
 import { VideoSourceForm } from "./video-source-form";
+import { MAX_PARTICIPANTS } from "@/constants/room";
+import { isRoomFull } from "@/utils/room-capacity";
 import type { Participant } from "@/types/room";
 
 /**
- * The room before the film starts: who's here, and how to get your person in.
+ * The room before the film starts: who's here, and how to get your people in.
  *
  * A real state, not a placeholder — the night hasn't started until someone
  * picks a film. Presentational: RoomView owns the live subscription and passes
@@ -19,31 +21,41 @@ export function RoomLobby({
   participants,
   youId,
   isHost,
+  uploadEnabled,
 }: {
   code: string;
   inviteUrl: string;
   participants: Participant[];
   youId: string | null;
   isHost: boolean;
+  uploadEnabled: boolean;
 }) {
-  const everyoneHere = participants.length >= 2;
+  const headcount = participants.length;
+  const alone = headcount < 2;
+  const full = isRoomFull(headcount);
 
   return (
     <div className="container py-10 md:py-14">
       <div className="mx-auto max-w-5xl">
         <header className="max-w-xl">
           <p className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
-            {everyoneHere ? "You're both here" : "Your room is ready"}
+            {alone
+              ? "Your room is ready"
+              : full
+                ? "The room is full"
+                : `${headcount} of ${MAX_PARTICIPANTS} here`}
           </p>
           <h1 className="mt-3 text-balance text-3xl font-semibold tracking-tight md:text-4xl">
-            {everyoneHere ? "Same couch, miles apart." : "Now bring your person in."}
+            {alone ? "Now bring your people in." : "Same couch, miles apart."}
           </h1>
           <p className="mt-3 text-pretty leading-relaxed text-muted-foreground">
-            {everyoneHere
-              ? isHost
-                ? "Everyone's here. Choose tonight's film and you'll press play together."
-                : "Everyone's here. The host is choosing tonight's film."
-              : "Send them the link, the code, or the QR — whichever's easiest. This page updates the moment they arrive."}
+            {alone
+              ? `Send them the link, the code, or the QR — whichever's easiest. Up to ${MAX_PARTICIPANTS} can join, and this page updates the moment someone arrives.`
+              : isHost
+                ? full
+                  ? "Everyone's here. Choose tonight's film and you'll press play together."
+                  : "Choose tonight's film when you're ready. More people can still join until the room fills."
+                : "The host is choosing tonight's film."}
           </p>
         </header>
 
@@ -81,8 +93,10 @@ export function RoomLobby({
               below it. Once a film is set, RoomView swaps this whole screen for
               the player. */}
           <div className="space-y-6">
-            <InvitePanel code={code} inviteUrl={inviteUrl} connected={everyoneHere} />
-            {isHost && <VideoSourceForm code={code} />}
+            <InvitePanel code={code} inviteUrl={inviteUrl} headcount={headcount} />
+            {isHost && (
+              <VideoSourceForm code={code} uploadEnabled={uploadEnabled} />
+            )}
           </div>
         </div>
       </div>

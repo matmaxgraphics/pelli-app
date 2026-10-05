@@ -55,7 +55,38 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=<your anon key>
 Both are safe in the browser — access is governed by the RLS policies in
 `supabase/schema.sql`, not by key secrecy.
 
-### 3. Run it
+### 3. Film storage (optional, for uploads)
+
+Without this the app still works — hosts paste a link to a film instead. To let
+hosts upload, create a [Cloudflare R2](https://developers.cloudflare.com/r2/)
+bucket (keep it **private**) and:
+
+1. **API token:** R2 → Manage API tokens → create one with *Object Read & Write*,
+   scoped to just this bucket.
+2. **CORS** (bucket → Settings → CORS policy), so the browser can upload and
+   stream. List each origin exactly as a browser sends it — **no trailing slash**:
+   ```json
+   [{
+     "AllowedOrigins": ["http://localhost:3000", "https://your-domain.example"],
+     "AllowedMethods": ["PUT", "GET", "HEAD"],
+     "AllowedHeaders": ["*"],
+     "ExposeHeaders": ["ETag"],
+     "MaxAgeSeconds": 3600
+   }]
+   ```
+3. **Lifecycle rule** (bucket → Settings → Object lifecycle rules): delete objects
+   under the `rooms/` prefix after 1 day. The app deletes a film when the host
+   ends the night; this is the backstop for nights that never end cleanly.
+4. Add to `.env.local` (and to your host's environment variables):
+   ```
+   R2_ACCOUNT_ID=<Cloudflare account id>
+   R2_ACCESS_KEY_ID=<token access key id>
+   R2_SECRET_ACCESS_KEY=<token secret>
+   R2_BUCKET=<bucket name>
+   ```
+   These are server-only secrets — never prefix them with `NEXT_PUBLIC_`.
+
+### 4. Run it
 
 ```bash
 pnpm dev
@@ -95,6 +126,12 @@ types/  utils/  constants/
 - **Light mode only,** by design. Pelli is a warm living room, not a console.
 - **Identity is a name and a color.** No accounts, no email. The seat is held in
   an httpOnly cookie so the room renders server-side already knowing who you are.
+- **A room holds up to 5 people, host included** (`constants/room.ts`). The cap,
+  and one-color / one-name per room, are enforced by Postgres — a trigger that
+  locks the room row, plus unique indexes — because a check-then-insert in app
+  code is racy: two people joining at 4/5 would both pass it. The app checks
+  first only to give a friendly answer early. Presence is drawn as everyone on
+  one shared line, however many are here.
 - **A room code is the credential**, the way a shared calendar link is. RLS is
   permissive by design and documented as such in `supabase/schema.sql`. Guessing
   a room means guessing 1 of ~729M codes.
@@ -106,9 +143,17 @@ types/  utils/  constants/
   never broadcast — they apply events and hard-seek whenever they drift past
   0.5s. Everything reconciles on video *position*, never wall-clock, so the two
   machines' clocks don't matter (`hooks/use-playback-sync.ts`).
-- **Films come from upload or link.** Uploads go straight from the browser to a
-  public `movies` Storage bucket (capped ~50MB for the free tier); a pasted MP4
-  link is the fast path. Both resolve to a URL the room records.
+- **Films come from upload or link.** A pasted MP4/WebM link is played as-is.
+  An upload goes straight from the host's browser to a *private* Cloudflare R2
+  bucket, using a presigned URL the server only issues to the room's host
+  (`server/upload-actions.ts`). The room stores just the object key, never a
+  URL: each viewer asks the server for a short-lived signed one, which also
+  proves they're seated in the room (`server/playback-actions.ts`). The server
+  re-checks the real object's size after upload rather than trusting the
+  browser, and deletes the film when the host ends the night. R2 has no egress
+  fees, so a night's cost is storage for a day — cents — whatever the file size.
+  The cap is one constant, `MAX_UPLOAD_BYTES` (500 MB); a single presigned PUT
+  works up to 5 GB, past which uploads would need to become multipart.
 - **Chat persists; typing and reactions are ephemeral.** Messages are stored and
   delivered over postgres_changes (history survives a refresh); typing pings and
   floating reactions ride broadcast for a snappy feel. Reactions are *also*

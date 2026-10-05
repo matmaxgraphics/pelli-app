@@ -44,3 +44,6 @@ next-env.d.ts
 
 # Local agent tooling
 .claude/
+
+# Local server output
+*.out.log
