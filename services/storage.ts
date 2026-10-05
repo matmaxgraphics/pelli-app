@@ -88,6 +88,11 @@ export async function headFilm(key: string): Promise<{ size: number } | null> {
 export async function deleteFilm(key: string): Promise<void> {
   const response = await getClient().fetch(objectUrl(key), { method: "DELETE" });
   if (!response.ok && response.status !== 404) {
-    throw new Error(`Could not delete the film (storage said ${response.status}).`);
+    // R2 explains itself in an XML body (<Code>AccessDenied</Code> ...). Surface
+    // the code, never the body wholesale: it can echo request details.
+    const code = (await response.text().catch(() => "")).match(/<Code>([^<]+)<\/Code>/)?.[1];
+    throw new Error(
+      `Could not delete the film (storage said ${response.status}${code ? ` ${code}` : ""}).`,
+    );
   }
 }
